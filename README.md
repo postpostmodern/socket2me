@@ -4,7 +4,8 @@ A simple Ruby-based HTTPS-to-local tunnel using a Rack WebSocket server and a Ru
 
 ## Client
 
-- Configure `config/client.yml` with your username, key, server, and local target.
+- Configure `config/client.yml` with your username, key, server, and local target details.
+- Bundle `bundle install`
 
 Run:
 
@@ -14,5 +15,5 @@ Run:
 
 ## Flow
 
-- Server relays HTTP requests to `https://{username}.socket2me.dev/*` over WebSocket to the client.
+- Server relays HTTP requests for `https://{username}.socket2me.dev/*` over WebSocket to the client.
 - Client forwards to local server and returns the response.
