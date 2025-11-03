@@ -1,0 +1,9 @@
+username: jason
+key: supersecretkey
+server: socket2me.dev
+local:
+  protocol: https
+  host: api.lvh.me
+  port: 3000
+allowed_paths:
+  - /webhooks/.*
