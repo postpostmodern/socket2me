@@ -14,8 +14,9 @@ require_relative "./allowed_paths"
 
 module Socket2Me
   class Client
-    def initialize(config_path = File.expand_path("../config/client.yml", __dir__))
+    def initialize(verbose: false, config_path: File.expand_path("../config/client.yml", __dir__))
       @config = YAML.load_file(config_path)
+      @verbose = verbose
       @username = @config.fetch("username")
       @token = @config.fetch("key")
       @server = @config.fetch("server")
@@ -31,12 +32,12 @@ module Socket2Me
       @reactor_task = nil
 
       puts "Socket2Me Client Initializing...".green.bold
-      puts "  Passthrough:     ".blue.bold + "https://#{@server_host}/".yellow + " -> " + "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}".yellow
-      puts "  Allowed Paths:   ".blue.bold + @local.fetch("allowed_paths", []).join(", ").yellow
+      puts "  Passthrough:     ".blue.bold + "https://#{@server_host}/" + "  ➤  ".yellow + "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}/"
+      puts "  Allowed Paths:   ".blue.bold + @local.fetch("allowed_paths", []).join(", ")
       puts "\n"
 
       Signal.trap("INT") do
-        puts "Received INT signal, stopping"
+        print "\nClosing connection...".green
         @stop = true
         # Wake up the reactor to check the stop flag
         @reactor_task&.reactor&.interrupt
@@ -88,7 +89,8 @@ module Socket2Me
                     @connection.write(JSON.dump(type: "pong", id: msg["id"]))
                     @connection.flush
                   when "ready"
-                    puts "Connected!".green.bold
+                    print "\rConnection established to #{@websocket_url} as #{@username}\n"
+                    puts "Ready for requests! ".green.bold + "(ctrl-c to exit)\n"
                   when "pong"
                     # ignore for now
                   else
@@ -101,6 +103,7 @@ module Socket2Me
             ensure
               heartbeat&.stop
               @connection = nil
+              puts "Goodbye!\n".green.bold
             end
           rescue StandardError => e
             break if @stop
@@ -116,7 +119,7 @@ module Socket2Me
     private
 
     def send_ready
-      print "Connecting to #{@websocket_url} as #{@username}...".green
+      print "Connecting..."
       @connection.write(JSON.dump({
         type: "ready",
         username: @username,
@@ -128,7 +131,7 @@ module Socket2Me
     def handle_request(msg)
       path = msg["path"]
       unless @allowed_paths.allow?(path)
-        puts "Path not allowed: #{path}"
+        puts "Path not allowed: ".red.bold + path.red
         @connection.write(
           JSON.dump(
             type: "response",
@@ -143,7 +146,7 @@ module Socket2Me
       end
 
       url = "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}#{path}"
-      puts "Handling request: #{url}"
+      puts "Handling request: ".blue + "#{url}".yellow
       method = msg["method"].to_s.downcase
       body = Base64.decode64(msg["body_b64"].to_s)
       headers = (msg["headers"].except("Host") || {})
@@ -157,9 +160,11 @@ module Socket2Me
         headers: response.headers,
         body_b64: Base64.strict_encode64(resp_body)
       }
-      puts "Response:"
-      pp payload.slice(:status, :headers)
-      puts resp_body
+      if @verbose
+        puts "Response:"
+        pp payload.slice(:status, :headers)
+        puts resp_body
+      end
       @connection.write(JSON.dump(payload))
       @connection.flush
     rescue StandardError => e
