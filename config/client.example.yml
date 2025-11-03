@@ -5,5 +5,5 @@ local:
   protocol: https
   host: api.lvh.me
   port: 3000
-allowed_paths:
-  - /webhooks/.*
+  allowed_paths:
+    - /webhooks/.*
