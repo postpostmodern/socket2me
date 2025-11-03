@@ -18,7 +18,8 @@ module Socket2Me
       @username = @config.fetch("username")
       @token = @config.fetch("key")
       @server = @config.fetch("server")
-      @websocket_url = @server.include?(":") ? "ws://#{@server}/ws" : "wss://#{@server}/ws"
+      @server_host = "#{@username}.#{@server}"
+      @websocket_url = @server.include?(":") ? "ws://#{@server_host}/ws" : "wss://#{@server_host}/ws"
       @local = @config.fetch("local")
       @allowed_paths = AllowedPaths.new(@local.fetch("allowed_paths", []))
     end
@@ -27,6 +28,11 @@ module Socket2Me
       @stop = false
       @connection = nil
       @reactor_task = nil
+
+      puts "Socket2Me Client Initializing..."
+      puts "  Server: #{@websocket_url}"
+      puts "  Public Endpoint: https://#{@server_host}/"
+      puts "  Local: #{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}"
 
       Signal.trap("INT") do
         puts "Received INT signal, stopping"
@@ -38,7 +44,7 @@ module Socket2Me
       Async do |task|
         @reactor_task = task
         until @stop
-          endpoint = Async::HTTP::Endpoint.parse(@websocket_url)
+          endpoint = Async::HTTP::Endpoint.parse(@websocket_url, alpn_protocols: ["http/1.1"])
           begin
             backoff = 1
             Async::WebSocket::Client.connect(endpoint) do |connection|
@@ -49,7 +55,7 @@ module Socket2Me
               heartbeat = task.async do |heartbeat_task|
                 until @stop do
                   begin
-                    connection.write(JSON.dump(type: "ping", at: Time.now.to_i))
+                    @connection.write(JSON.dump(type: "ping", at: Time.now.to_i))
                     heartbeat_task.sleep 15
                   rescue StandardError
                     break if @stop
