@@ -2,6 +2,19 @@
 # frozen_string_literal: true
 
 require_relative "lib/main"
+require "optparse"
+require "ostruct"
 
-Socket2Me::Client.new.run
+options = OpenStruct.new(verbose: false)
+OptionParser.new do |opts|
+  opts.banner = "Usage: socket2me [options]"
+  opts.on("-h", "--help", "Show this help message") do
+    puts opts
+    exit
+  end
+  opts.on("-v", "--verbose", "Print out local response bodies") do |v|
+    options.verbose = true
+  end
+end.parse!
+Socket2Me::Client.new(verbose: options.verbose).run
 

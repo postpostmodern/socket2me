@@ -56,6 +56,7 @@ GEM
     oj (3.16.12)
       bigdecimal (>= 3.0)
       ostruct (>= 0.2)
+    optparse (0.8.0)
     ostruct (0.6.3)
     protocol-hpack (1.5.1)
     protocol-http (0.55.0)
@@ -87,6 +88,7 @@ DEPENDENCIES
   faraday
   faraday-multipart
   oj
+  optparse
 
 BUNDLED WITH
    2.7.2
