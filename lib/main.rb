@@ -4,6 +4,7 @@ require "yaml"
 require "json"
 require "base64"
 require "faraday"
+require "colorize"
 require "async"
 require "async/http/endpoint"
 require "async/websocket/client"
@@ -29,10 +30,10 @@ module Socket2Me
       @connection = nil
       @reactor_task = nil
 
-      puts "Socket2Me Client Initializing..."
-      puts "  Server: #{@websocket_url}"
-      puts "  Public Endpoint: https://#{@server_host}/"
-      puts "  Local: #{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}"
+      puts "Socket2Me Client Initializing...".green.bold
+      puts "  Passthrough:     ".blue.bold + "https://#{@server_host}/".yellow + " -> " + "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}".yellow
+      puts "  Allowed Paths:   ".blue.bold + @local.fetch("allowed_paths", []).join(", ").yellow
+      puts "\n"
 
       Signal.trap("INT") do
         puts "Received INT signal, stopping"
@@ -55,7 +56,8 @@ module Socket2Me
               heartbeat = task.async do |heartbeat_task|
                 until @stop do
                   begin
-                    @connection.write(JSON.dump(type: "ping", at: Time.now.to_i))
+                    @connection.write(JSON.dump(type: "ping", id: SecureRandom.uuid, at: Time.now.to_i))
+                    @connection.flush
                     heartbeat_task.sleep 15
                   rescue StandardError
                     break if @stop
@@ -84,6 +86,13 @@ module Socket2Me
                   when "ping"
                     puts "Received ping: #{msg}"
                     @connection.write(JSON.dump(type: "pong", id: msg["id"]))
+                    @connection.flush
+                  when "ready"
+                    puts "Connected!".green.bold
+                  when "pong"
+                    # ignore for now
+                  else
+                    puts "Received unknown message: #{msg}"
                   end
                 end
               ensure
@@ -107,12 +116,13 @@ module Socket2Me
     private
 
     def send_ready
-      puts "Connecting to #{@server} as #{@username}"
+      print "Connecting to #{@websocket_url} as #{@username}...".green
       @connection.write(JSON.dump({
         type: "ready",
         username: @username,
         token: @token
       }))
+      @connection.flush
     end
 
     def handle_request(msg)
@@ -128,6 +138,7 @@ module Socket2Me
             body_b64: Base64.strict_encode64(JSON.dump(error: "path not allowed"))
           )
         )
+        @connection.flush
         return
       end
 
@@ -150,6 +161,7 @@ module Socket2Me
       pp payload.slice(:status, :headers)
       puts resp_body
       @connection.write(JSON.dump(payload))
+      @connection.flush
     rescue StandardError => e
       err = {
         type: "response",
@@ -159,6 +171,7 @@ module Socket2Me
         body_b64: Base64.strict_encode64(JSON.dump(error: e.message)),
       }
       @connection.write(JSON.dump(err))
+      @connection.flush
     end
   end
 end
