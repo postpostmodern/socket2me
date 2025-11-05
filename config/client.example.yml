@@ -1,9 +1,22 @@
+# A user account (username and key) needs to be configured on the socket2me server.
+# See https://github.com/postpostmodern/socket2me-server/blob/main/config/server.example.yml
 username: jason
 key: supersecretkey
 server: socket2me.dev
+
+# Configure these options to match your locally hosted app.
+# Requests to the socket2me server will be forwarded accordingly.
 local:
   protocol: https
   host: api.lvh.me
   port: 3000
+  # As a security measure, it's a good idea to restrict the paths that are accessible.
+  # Add as many regex patterns to this array as you like.
   allowed_paths:
-    - /webhooks/.*
+    - ^/webhooks/.*
+  # If your local app is accessible via https using a self-signed certificate, you
+  #   might need to set ssl verification to false.
+  # You can also pass any other options that Faraday's ssl option accepts
+  # See: https://lostisland.github.io/faraday/#/customization/ssl-options
+  ssl:
+    verify: false

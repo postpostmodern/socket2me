@@ -127,29 +127,21 @@ module Socket2Me
       @connection.flush
     end
 
+    def local_connection
+      protocol, host, port = @local.fetch_values("protocol", "host", "port")
+      options = @local.slice("ssl") || {}
+      @local_connection ||= Faraday.new("#{protocol}://#{host}:#{port}", options)
+    end
+
     def handle_request(msg)
       path = msg["path"]
-      unless @allowed_paths.allow?(path)
-        puts "Path not allowed: ".red.bold + path.red
-        @connection.write(
-          JSON.dump(
-            type: "response",
-            id: msg["id"],
-            status: 403,
-            headers: {"Content-Type"=>"application/json"},
-            body_b64: Base64.strict_encode64(JSON.dump(error: "path not allowed"))
-          )
-        )
-        @connection.flush
-        return
-      end
+      return unless validate_path(path)
 
-      url = "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}#{path}"
       method = msg["method"].to_s.downcase
       body = Base64.decode64(msg["body_b64"].to_s)
       headers = (msg["headers"].except("Host") || {})
 
-      puts "Handling request: ".blue + method.upcase.yellow.bold + " " + url.yellow
+      puts "Handling request: ".blue + method.upcase.yellow.bold + " " + local_connection.build_url(path).to_s.yellow
 
       if @verbose
         puts ""
@@ -164,7 +156,7 @@ module Socket2Me
         puts "\n"
       end
 
-      response = Faraday.run_request(method.to_sym, url, body.empty? ? nil : body, headers)
+      response = local_connection.run_request(method.to_sym, path, body.empty? ? nil : body, headers)
       resp_body = response.body.to_s
       payload = {
         type: "response",
@@ -187,6 +179,7 @@ module Socket2Me
       @connection.write(JSON.dump(payload))
       @connection.flush
     rescue StandardError => e
+      puts "ERROR: #{e.message}".red.bold
       err = {
         type: "response",
         id: msg["id"],
@@ -196,6 +189,23 @@ module Socket2Me
       }
       @connection.write(JSON.dump(err))
       @connection.flush
+    end
+
+    def validate_path(path)
+      return true if @allowed_paths.allow?(path)
+
+      puts "Path not allowed: ".red.bold + path.red
+      @connection.write(
+        JSON.dump(
+          type: "response",
+          id: msg["id"],
+          status: 403,
+          headers: {"Content-Type"=>"application/json"},
+          body_b64: Base64.strict_encode64(JSON.dump(error: "path not allowed"))
+        )
+      )
+      @connection.flush
+      false
     end
   end
 end
