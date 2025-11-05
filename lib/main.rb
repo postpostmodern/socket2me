@@ -146,10 +146,24 @@ module Socket2Me
       end
 
       url = "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}#{path}"
-      puts "Handling request: ".blue + "#{url}".yellow
       method = msg["method"].to_s.downcase
       body = Base64.decode64(msg["body_b64"].to_s)
       headers = (msg["headers"].except("Host") || {})
+
+      puts "Handling request: ".blue + method.upcase.yellow.bold + " " + url.yellow
+
+      if @verbose
+        puts ""
+        puts ("=" * 60).green
+        puts "Request Headers".green
+        puts ("=" * 60).green
+        pp headers
+        puts ("=" * 60).green
+        puts "Request Body".green
+        puts ("=" * 60).green
+        pp body
+        puts "\n"
+      end
 
       response = Faraday.run_request(method.to_sym, url, body.empty? ? nil : body, headers)
       resp_body = response.body.to_s
@@ -161,9 +175,15 @@ module Socket2Me
         body_b64: Base64.strict_encode64(resp_body)
       }
       if @verbose
-        puts "Response:"
+        puts ("=" * 60).green
+        puts "Response Headers".green
+        puts ("=" * 60).green
         pp payload.slice(:status, :headers)
+        puts ("=" * 60).green
+        puts "Response Body".green
+        puts ("=" * 60).green
         puts resp_body
+        puts "\n\n"
       end
       @connection.write(JSON.dump(payload))
       @connection.flush
@@ -184,5 +204,3 @@ end
 if $PROGRAM_NAME == __FILE__
   Socket2Me::Client.new.run
 end
-
-
