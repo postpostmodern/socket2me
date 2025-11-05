@@ -9,7 +9,6 @@ require "async"
 require "async/http/endpoint"
 require "async/websocket/client"
 
-require_relative "./message_protocol"
 require_relative "./allowed_paths"
 
 module Socket2Me
