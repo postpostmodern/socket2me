@@ -28,7 +28,9 @@ module Socket2Me
     def run
       @stop = false
       @connection = nil
+      @heartbeat = nil
       @reactor_task = nil
+      @stop_reader, @stop_writer = IO.pipe
 
       puts "Socket2Me Client Initializing...".green.bold
       puts "  Passthrough:     ".blue.bold + "https://#{@server_host}/" + "  ➤  ".yellow + "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}/"
@@ -36,80 +38,78 @@ module Socket2Me
       puts "\n"
 
       Signal.trap("INT") do
-        print "\nClosing connection...".green
-        @stop = true
-        # Wake up the reactor to check the stop flag
-        @reactor_task&.reactor&.interrupt
+        gracefully_exit
       end
 
       Async do |task|
         @reactor_task = task
+        @backoff = 1
+
+        # Monitor for stop signal
+        task.async do
+          @stop_reader.read
+          cleanup
+          task.stop
+        end
+
         until @stop
           endpoint = Async::HTTP::Endpoint.parse(@websocket_url, alpn_protocols: ["http/1.1"])
           begin
-            backoff = 1
             Async::WebSocket::Client.connect(endpoint) do |connection|
               @connection = connection
-              send_ready
+              authenticate
 
-              # Heartbeat (start after ready)
-              heartbeat = task.async do |heartbeat_task|
-                until @stop do
+              # Heartbeat (start after successful auth)
+              @heartbeat = task.async do |heartbeat_task|
+                until @stop
                   begin
                     @connection.write(JSON.dump(type: "ping", id: SecureRandom.uuid, at: Time.now.to_i))
                     @connection.flush
                     heartbeat_task.sleep 15
                   rescue StandardError
                     break if @stop
+
                     raise
                   end
                 end
               end
 
-              # Monitor for stop signal and close connection from reactor context
-              monitor_task = task.async do |monitor_task|
-                until @stop
-                  monitor_task.sleep(0.5)
-                end
-                # Close connection from reactor context (safe)
-                @connection&.close if @stop
-              end
+              # Main message loop
+              while (raw = @connection.read)
+                break if @stop
 
-              begin
-                while (raw = @connection.read)
-                  break if @stop
-
-                  msg = JSON.parse(raw)
-                  case msg["type"]
-                  when "request"
-                    handle_request(msg)
-                  when "ping"
-                    puts "Received ping: #{msg}"
-                    @connection.write(JSON.dump(type: "pong", id: msg["id"]))
-                    @connection.flush
-                  when "ready"
-                    print "\rConnection established to #{@websocket_url} as #{@username}\n"
-                    puts "Ready for requests! ".green.bold + "(ctrl-c to exit)\n"
-                  when "pong"
-                    # ignore for now
-                  else
-                    puts "Received unknown message: #{msg}"
-                  end
+                msg = JSON.parse(raw)
+                case msg["type"]
+                when "request"
+                  handle_request(msg)
+                when "ping"
+                  puts "Received ping: #{msg}"
+                  @connection.write(JSON.dump(type: "pong", id: msg["id"]))
+                  @connection.flush
+                when "ready"
+                  # Should not receive another ready message
+                  puts "Unexpected ready message: #{msg}"
+                when "pong"
+                  # ignore for now
+                when "error"
+                  puts "ERROR: #{msg['message']}".red.bold
+                  @stop = true
+                  raise
+                else
+                  puts "Received unknown message: #{msg}"
                 end
-              ensure
-                monitor_task.stop
               end
             ensure
-              heartbeat&.stop
-              @connection = nil
-              puts "Goodbye!\n".green.bold
+              cleanup
             end
           rescue StandardError => e
+            cleanup
             break if @stop
-            puts "Error: #{e.message}"
-            puts "Backing off for #{backoff} seconds"
-            task.sleep(backoff)
-            backoff = [backoff * 2, 30].min
+
+            puts "Error: #{e.message}".red.bold
+            puts "Backing off for #{@backoff} seconds"
+            task.sleep(@backoff)
+            @backoff = [@backoff * 2, 30].min
           end
         end
       end
@@ -117,14 +117,48 @@ module Socket2Me
 
     private
 
-    def send_ready
-      print "Connecting..."
+    def cleanup
+      @heartbeat&.stop
+      @connection&.close
+      @connection = nil
+      @heartbeat = nil
+    end
+
+    def gracefully_exit
+      print "\nClosing connection...".green
+      @stop = true
+      # Signal the stop pipe (safe from trap context)
+      @stop_writer.write("stop")
+      @stop_writer.close
+      puts "Later, tater!".green.bold
+    end
+
+    def authenticate
+      print "Connecting...\r"
       @connection.write(JSON.dump({
         type: "ready",
         username: @username,
-        token: @token
+        token: @token,
       }))
       @connection.flush
+
+      auth_response = @connection.read
+      auth_msg = JSON.parse(auth_response)
+
+      case auth_msg.transform_keys(&:to_sym)
+      in { type: "error", message: "unauthorized" }
+        puts "Authorization failed. Please check your credentials in config/client.yml".red.bold
+        gracefully_exit
+      in { type: "error", message: message }
+        puts "ERROR: #{message}".red.bold
+        gracefully_exit
+      in { type: "ready" }
+        puts "Connection established to #{@websocket_url} as #{@username}"
+        puts "Ready for requests! ".green.bold + "(ctrl-c to exit)\n"
+      else
+        puts "Unexpected auth response: #{auth_msg}".red.bold
+        gracefully_exit
+      end
     end
 
     def local_connection
