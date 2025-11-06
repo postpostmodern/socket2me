@@ -27,7 +27,8 @@ Or you can host your own Socket2Me server, which can be found at https://github.
      - `host`: the host for your local server (probably something like `localhost` or `lvh.me`)
      - `port`: the port for connections to your local server
      - `allowed_paths`: a yaml array of regex patterns to match request paths against
-       - Something like `/.*` will allow any url to hit your server, but that's probably risky. If this is only for something like webhooks, add just the patterns that will match your webhook paths.
+       - Something like `^/.*` will allow any url to hit your server, but that's probably risky. If this is only for something like webhooks, add just the patterns that will match your webhook paths.
+     - `ssl`: SSL options to pass to the Faraday connection. This is primarily set to `verify: false` to get around self-signed certs for local servers.
 
 ### Run
 
