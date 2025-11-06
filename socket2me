@@ -12,9 +12,8 @@ OptionParser.new do |opts|
     puts opts
     exit
   end
-  opts.on("-v", "--verbose", "Print out local response bodies") do |v|
+  opts.on("-v", "--verbose", "Print out local response bodies") do
     options.verbose = true
   end
 end.parse!
 Socket2Me::Client.new(verbose: options.verbose).run
-
