@@ -2,6 +2,9 @@
 
 A simple Ruby-based HTTPS-to-local tunnel using a Rack WebSocket server and a Ruby client.
 
+> [!WARNING]
+> This is a nacent experiment. There may be security issues. Use at your own risk.
+
 ## Client
 
 This repo contains the Socket2Me client. You can use it to connect to the public server at socket2me.dev, but
