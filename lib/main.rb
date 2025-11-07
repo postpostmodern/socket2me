@@ -169,7 +169,8 @@ module Socket2Me
 
     def handle_request(msg)
       path = msg["path"]
-      return unless validate_path(path)
+      id = msg["id"]
+      return unless validate_path(path, id)
 
       method = msg["method"].to_s.downcase
       body = Base64.decode64(msg["body_b64"].to_s)
@@ -194,7 +195,7 @@ module Socket2Me
       resp_body = response.body.to_s
       payload = {
         type: "response",
-        id: msg["id"],
+        id: id,
         status: response.status,
         headers: response.headers,
         body_b64: Base64.strict_encode64(resp_body)
@@ -216,7 +217,7 @@ module Socket2Me
       puts "ERROR: #{e.message}".red.bold
       err = {
         type: "response",
-        id: msg["id"],
+        id: id,
         status: 502,
         headers: {"Content-Type"=>"application/json"},
         body_b64: Base64.strict_encode64(JSON.dump(error: e.message)),
@@ -225,14 +226,14 @@ module Socket2Me
       @connection.flush
     end
 
-    def validate_path(path)
+    def validate_path(path, id)
       return true if @allowed_paths.allow?(path)
 
       puts "Path not allowed: ".red.bold + path.red
       @connection.write(
         JSON.dump(
           type: "response",
-          id: msg["id"],
+          id: id,
           status: 403,
           headers: {"Content-Type"=>"application/json"},
           body_b64: Base64.strict_encode64(JSON.dump(error: "path not allowed"))
