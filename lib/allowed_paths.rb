@@ -14,8 +14,15 @@ module Socket2Me
       end
     end
 
+    def empty?
+      @patterns.empty?
+    end
+
     def allow?(path)
-      return true if @patterns.empty?
+      # Fail closed: with no patterns configured, allow nothing. An empty
+      # allowlist previously meant "allow every path", which silently exposed
+      # the entire local server if allowed_paths was omitted or blank.
+      return false if @patterns.empty?
 
       @patterns.any? { |regex| regex.match?(path) }
     end

@@ -3,6 +3,7 @@
 require "yaml"
 require "json"
 require "base64"
+require "cgi"
 require "faraday"
 require "colorize"
 require "async"
@@ -12,6 +13,28 @@ require "async/websocket/client"
 require_relative "./allowed_paths"
 
 module Socket2Me
+  # Request headers that must never be forwarded to the local server. Host is
+  # rewritten by Faraday; hop-by-hop headers are connection-specific; and the
+  # X-Forwarded-*/X-Real-Ip/X-S2M-Username values are attacker-controllable over
+  # the public tunnel, so a local app must not be able to trust them via us.
+  STRIPPED_REQUEST_HEADERS = %w[
+    host
+    content-length
+    connection
+    keep-alive
+    proxy-authenticate
+    proxy-authorization
+    te
+    trailer
+    transfer-encoding
+    upgrade
+    x-forwarded-for
+    x-forwarded-host
+    x-forwarded-proto
+    x-real-ip
+    x-s2m-username
+  ].freeze
+
   class Client
     def initialize(verbose: false, config_path: File.expand_path("../config/client.yml", __dir__))
       @config = YAML.load_file(config_path)
@@ -20,9 +43,22 @@ module Socket2Me
       @token = @config.fetch("key")
       @server = @config.fetch("server")
       @server_host = "#{@username}.#{@server}"
-      @websocket_url = @server.include?(":") ? "ws://#{@server_host}/ws" : "wss://#{@server_host}/ws"
+      @websocket_url = "#{websocket_scheme}://#{@server_host}/ws"
       @local = @config.fetch("local")
       @allowed_paths = AllowedPaths.new(@local.fetch("allowed_paths", []))
+    end
+
+    # Default to encrypted wss. Only fall back to plaintext ws for a loopback
+    # server (local development) or when the user explicitly opts in with
+    # `insecure: true`. Previously any `server` containing ":" silently
+    # downgraded to ws, so e.g. `server: example.com:443` sent the token and all
+    # traffic in the clear.
+    def websocket_scheme
+      return "ws" if @config.fetch("insecure", false)
+
+      host = @server.to_s.split(":").first.to_s
+      loopback = %w[localhost 127.0.0.1 ::1 lvh.me].include?(host) || host.end_with?(".lvh.me", ".localhost")
+      loopback ? "ws" : "wss"
     end
 
     def run
@@ -35,6 +71,11 @@ module Socket2Me
       puts "Socket2Me Client Initializing...".green.bold
       puts "  Passthrough:     ".blue.bold + "https://#{@server_host}/" + "  ➤  ".yellow + "#{@local.fetch("protocol")}://#{@local.fetch("host")}:#{@local.fetch("port")}/"
       puts "  Allowed Paths:   ".blue.bold + @local.fetch("allowed_paths", []).join(", ")
+      if @allowed_paths.empty?
+        puts "\n"
+        puts "  WARNING: no allowed_paths configured — ALL requests will be denied.".red.bold
+        puts "  Add regex patterns under local.allowed_paths in config/client.yml.".red
+      end
       puts "\n"
 
       Signal.trap("INT") do
@@ -58,6 +99,9 @@ module Socket2Me
             Async::WebSocket::Client.connect(endpoint) do |connection|
               @connection = connection
               authenticate
+              # Reset backoff once we're connected and authenticated so a brief
+              # drop after a long healthy session doesn't inherit a large delay.
+              @backoff = 1
 
               # Heartbeat (start after successful auth)
               @heartbeat = task.async do |heartbeat_task|
@@ -164,7 +208,12 @@ module Socket2Me
     def local_connection
       protocol, host, port = @local.fetch_values("protocol", "host", "port")
       options = @local.slice("ssl") || {}
-      @local_connection ||= Faraday.new("#{protocol}://#{host}:#{port}", options)
+      @local_connection ||= Faraday.new("#{protocol}://#{host}:#{port}", options) do |conn|
+        # Bound how long a slow/hung local server can tie up a request. The
+        # server gives up at 30s; keep the forward timeout at or below that.
+        conn.options.open_timeout = Integer(@local.fetch("open_timeout", 5))
+        conn.options.timeout = Integer(@local.fetch("timeout", 30))
+      end
     end
 
     def handle_request(msg)
@@ -174,7 +223,7 @@ module Socket2Me
 
       method = msg["method"].to_s.downcase
       body = Base64.decode64(msg["body_b64"].to_s)
-      headers = (msg["headers"].except("Host") || {})
+      headers = sanitize_headers(msg["headers"])
 
       puts "Handling request: ".blue + method.upcase.yellow.bold + " " + local_connection.build_url(path).to_s.yellow
 
@@ -226,9 +275,32 @@ module Socket2Me
       @connection.flush
     end
 
+    def sanitize_headers(headers)
+      (headers || {}).reject { |k, _| STRIPPED_REQUEST_HEADERS.include?(k.to_s.downcase) }
+    end
+
+    # Reject anything that could let an allowed prefix (e.g. ^/webhooks/.*) be
+    # escaped via path traversal or control-character smuggling before the
+    # local server normalizes it. Decodes twice to catch %2e%2e / %252e style
+    # double-encoding.
+    def suspicious_path?(path)
+      decoded = path.to_s
+      2.times { decoded = CGI.unescape(decoded) }
+      return true if decoded.match?(/[\x00-\x1f\x7f]/) # control chars incl. CR/LF/NUL
+      return true if decoded.include?("\\")
+
+      segments = decoded.split(%r{[?#]}, 2).first.to_s.split("/")
+      segments.include?("..")
+    end
+
     def validate_path(path, id)
+      return deny_path(path, id) if suspicious_path?(path)
       return true if @allowed_paths.allow?(path)
 
+      deny_path(path, id)
+    end
+
+    def deny_path(path, id)
       puts "Path not allowed: ".red.bold + path.red
       @connection.write(
         JSON.dump(
