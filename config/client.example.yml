@@ -12,6 +12,8 @@ local:
   port: 3000
   # As a security measure, it's a good idea to restrict the paths that are accessible.
   # Add as many regex patterns to this array as you like.
+  # Reserved: /up is the server's own health check and is never forwarded — a
+  # pattern that matches it will not reach your local app.
   allowed_paths:
     - ^/webhooks/.*
   # If your local app is accessible via https using a self-signed certificate, you
