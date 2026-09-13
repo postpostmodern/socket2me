@@ -1,6 +1,9 @@
-# A user account (username and key) needs to be configured on the socket2me server.
-# See https://github.com/postpostmodern/socket2me-server/blob/main/config/server.example.yml
-username: jason
+# Your username and key are issued by the socket2me server admin (bin/new-user in
+# https://github.com/postpostmodern/socket2me-server). Usernames are opaque
+# handles, not names: each one becomes a public https://<username>.socket2me.dev
+# hostname with its own certificate, so you cannot pick your own. The values
+# below are placeholders.
+username: k7x2pq9wz3ma
 key: supersecretkey
 server: socket2me.dev
 

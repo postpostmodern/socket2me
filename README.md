@@ -22,7 +22,7 @@ Or you can host your own Socket2Me server, which can be found at https://github.
 
 1. Create your config file: `cp config/client.exmaple.yml config/client.yml`
 2. Edit `config/client.yml`
-   - `username`: the username for your socket2me.dev client account
+   - `username`: the username for your socket2me.dev client account — an opaque handle issued by the server admin, not a name you choose
    - `key`: the key/password for your socket2me.dev client account
    - `server`: the public host of the socket2me-server
    - `local`: settings that determine where the client forwards requests
@@ -39,7 +39,7 @@ Run the client: `./socket2me`
 
 Any https requests made to the server, where the subdomain matches your username, should get forwarded to your local host.
    
-E.g.: If my username is `jason`, requests sent to `https://jason.socket2me.dev/` would get forwarded to my local server.
+E.g.: If my username is `k7x2pq9wz3ma`, requests sent to `https://k7x2pq9wz3ma.socket2me.dev/` would get forwarded to my local server.
 
 ## Flow
 
