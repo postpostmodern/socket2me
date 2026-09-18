@@ -225,6 +225,17 @@ module Socket2Me
       body = Base64.decode64(msg["body_b64"].to_s)
       headers = sanitize_headers(msg["headers"])
 
+      # Optionally tell the local app its public-facing host/scheme. Faraday sets
+      # the Host header to the local server (from `local`), which is what apps
+      # that route by host (vhosts) need — but it hides the real public host.
+      # With `forward_host: true`, also send the standard X-Forwarded-* headers so
+      # the app can build absolute URLs (OAuth discovery, redirects) that point
+      # back at the tunnel instead of the local host.
+      if @local.fetch("forward_host", false)
+        headers["X-Forwarded-Host"] = @server_host
+        headers["X-Forwarded-Proto"] = "https"
+      end
+
       puts "Handling request: ".blue + method.upcase.yellow.bold + " " + local_connection.build_url(path).to_s.yellow
 
       if @verbose
