@@ -22,3 +22,8 @@ local:
   # See: https://lostisland.github.io/faraday/#/customization/ssl-options
   ssl:
     verify: false
+  # When true, send X-Forwarded-Host (your public <username>.<server> host) and
+  # X-Forwarded-Proto: https to the local app. Leave false for plain webhook
+  # forwarding; set true when the local app builds absolute URLs that must point
+  # back at the tunnel (e.g. OAuth discovery/redirects) rather than the local host.
+  forward_host: false
